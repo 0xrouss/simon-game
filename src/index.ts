@@ -3,6 +3,7 @@ import { machine } from "./stackr/machine.ts";
 import { Playground } from "@stackr/sdk/plugins";
 import express, { Request, Response } from "express";
 import { mru } from "./stackr/mru.ts";
+import path from "path";
 
 /**
  * Main function to set up and run the Stackr micro rollup server
@@ -18,6 +19,9 @@ const main = async () => {
     const app = express();
     app.use(express.json());
 
+    // Serve static files from the "public" directory
+    app.use(express.static(path.join(__dirname, "public")));
+
     // Enable CORS for all routes
     app.use((_req, res, next) => {
         res.header("Access-Control-Allow-Origin", "*");
@@ -26,6 +30,11 @@ const main = async () => {
             "Origin, X-Requested-With, Content-Type, Accept"
         );
         next();
+    });
+
+    // Serve the HTML file for the Simon game
+    app.get("/", (req: Request, res: Response) => {
+        res.sendFile(path.join(__dirname, "public", "simon.html"));
     });
 
     /**

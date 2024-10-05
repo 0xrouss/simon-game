@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Simon Game</title>
+        <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.0/dist/ethers.umd.min.js"></script>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                text-align: center;
+                background-color: #333;
+                color: #fff;
+            }
+
+            h1 {
+                margin-top: 50px;
+            }
+
+            #gameBoard {
+                margin-top: 30px;
+                display: grid;
+                grid-template-columns: repeat(2, 150px);
+                grid-gap: 20px;
+                justify-content: center;
+            }
+
+            .colorButton {
+                width: 150px;
+                height: 150px;
+                border-radius: 50%;
+                box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+                cursor: pointer;
+                transition: transform 0.1s ease-in-out;
+            }
+
+            .colorButton:active {
+                transform: scale(0.95);
+            }
+
+            .red {
+                background-color: red;
+            }
+
+            .blue {
+                background-color: blue;
+            }
+
+            .yellow {
+                background-color: yellow;
+            }
+
+            .green {
+                background-color: green;
+            }
+
+            #createGameButton {
+                background-color: #4caf50;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 18px;
+            }
+
+            #createGameButton:hover {
+                background-color: #45a049;
+            }
+
+            #gameSequence {
+                margin-top: 20px;
+            }
+
+            #submitMovesButton {
+                background-color: #4caf50;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 18px;
+            }
+
+            #submitMovesButton:hover {
+                background-color: #45a049;
+            }
+
+            .colorButton.active {
+                filter: brightness(150%);
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Simon Game</h1>
+        <div>
+            <button id="createGameButton">Create New Game</button>
+        </div>
+
+        <div id="gameBoard" style="display: none">
+            <div class="colorButton red" data-color="red"></div>
+            <div class="colorButton blue" data-color="blue"></div>
+            <div class="colorButton yellow" data-color="yellow"></div>
+            <div class="colorButton green" data-color="green"></div>
+        </div>
+
+        <p id="gameSequence"></p>
+        <p id="roundNumber"></p>
+        <button id="submitMovesButton" style="display: none">
+            Submit Moves
+        </button>
+
+        <script type="text/javascript">
+            let gameId = "";
+            let gameSequence = "";
+            let userSequence = "";
+            let deterministicWallet;
+            let roundNumber = 0;
+
+            // Updated colors with highlighted versions
+            const colors = {
+                red: "#FF9290",
+                blue: "#4c4cff",
+                yellow: "#ffff4c",
+                green: "#4cff4c",
+            };
+
+            const originalColors = {
+                red: "red",
+                blue: "blue",
+                yellow: "yellow",
+                green: "green",
+            };
+
+            // Load sound files for each button
+            const soundMap = {
+                red: new Audio(
+                    "https://s3.amazonaws.com/freecodecamp/simonSound1.mp3"
+                ),
+                blue: new Audio(
+                    "https://s3.amazonaws.com/freecodecamp/simonSound2.mp3"
+                ),
+                yellow: new Audio(
+                    "https://s3.amazonaws.com/freecodecamp/simonSound3.mp3"
+                ),
+                green: new Audio(
+                    "https://s3.amazonaws.com/freecodecamp/simonSound4.mp3"
+                ),
+            };
+
+            // Check if MetaMask (or other Ethereum provider) is available
+            if (typeof window.ethereum !== "undefined") {
+                console.log("MetaMask is available");
+            } else {
+                alert("Please install MetaMask");
+            }
+
+            // Create ethers provider directly using window.ethereum
+            const provider = new ethers.providers.Web3Provider(window.ethereum);
+
+            async function connectMetaMask() {
+                await provider.send("eth_requestAccounts", []);
+            }
+
+            // Function to create a deterministic wallet
+            async function createDeterministicWallet() {
+                await connectMetaMask();
+                const signer = provider.getSigner();
+                const msgSender = await signer.getAddress();
+
+                const message = `Simon Game Wallet: ${msgSender}`;
+                const signature = await signer.signMessage(message);
+                const walletSeed = ethers.utils.keccak256(
+                    ethers.utils.toUtf8Bytes(signature)
+                );
+                deterministicWallet = new ethers.Wallet(walletSeed);
+
+                console.log(
+                    "Deterministic wallet address:",
+                    deterministicWallet.address
+                );
+            }
+
+            document
+                .getElementById("createGameButton")
+                .addEventListener("click", async () => {
+                    try {
+                        await createDeterministicWallet();
+                        const msgSender = deterministicWallet.address;
+
+                        const domain = {
+                            name: "Stackr MVP v0",
+                            version: "1",
+                            chainId: 11155111,
+                            verifyingContract:
+                                "0x0000000000000000000000000000000000000000",
+                            salt: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                        };
+
+                        const schemaTypes = {
+                            CreateGame: [
+                                { name: "timestamp", type: "uint256" },
+                                { name: "owner", type: "address" },
+                            ],
+                            Action: [
+                                { name: "name", type: "string" },
+                                { name: "inputs", type: "CreateGame" },
+                            ],
+                        };
+
+                        const createGameInputs = {
+                            timestamp: Math.floor(Date.now() / 1000),
+                            owner: await provider.getSigner().getAddress(),
+                        };
+
+                        const createGameAction = {
+                            name: "createGame",
+                            inputs: createGameInputs,
+                        };
+
+                        const signature =
+                            await deterministicWallet._signTypedData(
+                                domain,
+                                schemaTypes,
+                                createGameAction
+                            );
+
+                        const response = await fetch(
+                            "http://localhost:3012/createGame",
+                            {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/json",
+                                },
+                                body: JSON.stringify({
+                                    msgSender,
+                                    inputs: createGameInputs,
+                                    signature,
+                                }),
+                            }
+                        );
+
+                        const result = await response.json();
+                        console.log("Game created with logs:", result.logs);
+
+                        gameId = result.logs[0].value;
+                        roundNumber = 1;
+                        startGame(gameId);
+                    } catch (error) {
+                        console.error("Error creating game:", error);
+                    }
+                });
+
+            function startGame(id) {
+                document.getElementById("gameBoard").style.display = "grid";
+                gameSequence = "";
+                userSequence = "";
+                displayGameSequence();
+            }
+
+            async function flashButton(button, color) {
+                soundMap[color].play();
+                button.style.backgroundColor = colors[color];
+
+                await new Promise((resolve) => setTimeout(resolve, 500));
+
+                button.style.backgroundColor = originalColors[color];
+                await new Promise((resolve) => setTimeout(resolve, 300));
+            }
+
+            async function playGameSequence() {
+                if (!gameSequence || gameSequence.length === 0) {
+                    console.error("No game sequence available to play.");
+                    return;
+                }
+
+                for (let i = 0; i < gameSequence.length; i++) {
+                    const color = gameSequence[i];
+                    const button = document.querySelector(
+                        `.colorButton.${color}`
+                    );
+                    await flashButton(button, color);
+                }
+            }
+
+            function displayGameSequence() {
+                fetch(`http://localhost:3012/games/${gameId}`)
+                    .then((response) => response.json())
+                    .then(async (game) => {
+                        gameSequence = game.gameSequence.split(",");
+                        document.getElementById(
+                            "roundNumber"
+                        ).textContent = `Round: ${roundNumber}`;
+                        await new Promise((resolve) =>
+                            setTimeout(resolve, 1000)
+                        ); // Pause before starting new round
+                        playGameSequence(); // Call playGameSequence to flash the buttons
+                    })
+                    .catch((error) => {
+                        console.error("Error fetching game:", error);
+                    });
+            }
+
+            document.querySelectorAll(".colorButton").forEach((button) => {
+                button.addEventListener("click", () => {
+                    const color = button.getAttribute("data-color");
+                    userSequence += (userSequence ? "," : "") + color;
+                    soundMap[color].play();
+
+                    if (
+                        userSequence.split(",").length === gameSequence.length
+                    ) {
+                        submitUserMoves();
+                    }
+                });
+            });
+
+            async function submitUserMoves() {
+                try {
+                    const msgSender = deterministicWallet.address;
+
+                    const schemaTypes = {
+                        UserMoves: [
+                            { name: "gameId", type: "string" },
+                            { name: "moves", type: "string" },
+                        ],
+                        Action: [
+                            { name: "name", type: "string" },
+                            { name: "inputs", type: "UserMoves" },
+                        ],
+                    };
+
+                    const userMoveInputs = {
+                        gameId,
+                        moves: userSequence,
+                    };
+
+                    const userMoveAction = {
+                        name: "userMoves",
+                        inputs: userMoveInputs,
+                    };
+
+                    const domain = {
+                        name: "Stackr MVP v0",
+                        version: "1",
+                        chainId: 11155111,
+                        verifyingContract:
+                            "0x0000000000000000000000000000000000000000",
+                        salt: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                    };
+
+                    const signature = await deterministicWallet._signTypedData(
+                        domain,
+                        schemaTypes,
+                        userMoveAction
+                    );
+
+                    const response = await fetch(
+                        "http://localhost:3012/userMoves",
+                        {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                            },
+                            body: JSON.stringify({
+                                msgSender,
+                                inputs: userMoveInputs,
+                                signature,
+                            }),
+                        }
+                    );
+
+                    const result = await response.json();
+                    console.log("Move submitted with logs:", result.logs);
+
+                    if (result.logs[0].name === "New Move") {
+                        userSequence = "";
+                        roundNumber++;
+                        displayGameSequence();
+                    } else if (result.logs[0].name === "Game Ended") {
+                        alert(
+                            `Game Over! You reached round ${
+                                result.logs[0].value.split(",")[1]
+                            }`
+                        );
+                        document.getElementById("gameBoard").style.display =
+                            "none";
+                    }
+                } catch (error) {
+                    console.error("Error submitting moves:", error);
+                }
+            }
+        </script>
+    </body>
+</html>
